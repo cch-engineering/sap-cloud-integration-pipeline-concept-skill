@@ -1,4 +1,4 @@
-# SAP Cloud Integration Pipeline Assistant v2
+# SAP Cloud Integration Pipeline Assistant
 
 GitHub Copilot Agent Skill for SAP Integration Suite Cloud Integration Pipeline framework assistance.
 
