@@ -1,0 +1,31 @@
+[
+  {
+    "Pid": "CS_S4HANA_ORACLE_Order",
+    "Agency": "S4HANA",
+    "Scheme": "SenderInterface",
+    "Id": "SI_Order_Out_Async"
+  },
+  {
+    "Pid": "CS_S4HANA_ORACLE_Order",
+    "Id": "MaxJMSRetries",
+    "Value": "3"
+  },
+  {
+    "Pid": "CS_S4HANA_ORACLE_Order",
+    "Id": "receiverDetermination",
+    "Value": "ORACLEDB"
+  },
+  {
+    "Pid": "CS_S4HANA_ORACLE_Order",
+    "Id": "interfaceDetermination_ORACLEDB",
+    "Value": "/PIP/Step07/OracleDB/Receiver/Order"
+  },
+  {
+    "Pid": "CS_S4HANA_ORACLE_Order",
+    "Id": "interfaceDetermination_ORACLEDB"
+  },
+  {
+    "Pid": "Landscape_Stage~PRD",
+    "User": "<OAuthClientIdOrServiceUserForPRD>"
+  }
+]
