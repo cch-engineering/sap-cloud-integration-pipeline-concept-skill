@@ -14,6 +14,7 @@ Always validate names against the deployed package version. The same ID may be a
 | `interfaceDetermination_<ReceiverAlias>` | Binary Parameter, content type XSL | Yes, ONLY when `receiverDetermination` is also a String Parameter | Normally combined mapping instead | No | Separate interface-determination XSLT. NOT valid alongside a Binary Parameter `receiverDetermination`. |
 | `CustomXPreEnabled` | String Parameter | Yes | Yes | Verify | Enables custom pre-processing; expected boolean text |
 | `CustomXPreEndpoint` | String Parameter | Yes | Yes | Verify | Custom pre-processing ProcessDirect endpoint |
+| `CustomXIDEndpoint` | String Parameter | Yes | No | No | ProcessDirect address for custom interface-determination extension. When present, Step05 calls this endpoint as the interface-determination extension point. Read by `readCustomInterfaceDeterminationFromPD.groovy` in Step05. |
 | `CustomXRDEndpoint` | String Parameter | Yes | Yes | Verify | Custom receiver-determination extension endpoint |
 | `ReuseXRDEndpoint` | String Parameter | Yes | Yes | Verify | Reusable receiver-determination endpoint fallback |
 | `ReceiverSpecificQueue` | String Parameter, usually receiver partner | Yes | Yes | No | Receiver-specific outbound JMS queue |
