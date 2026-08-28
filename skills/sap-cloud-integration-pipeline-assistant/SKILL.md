@@ -46,6 +46,7 @@ Do not repeat a question already answered. If the user explicitly requests virtu
 
 After Q1–Q7 are resolved, ask:
 8. Does the sender interface carry a namespace? If yes, `SAP_SenderInterfaceNamespace` must be set in Step01 and the Alternative Partner entry structure changes. If no namespace, the standard structure applies. Do not assume either case.
+9. Is an inbound conversion exit required (Step03)? Skip this question entirely if Q2 = Integrated Sync — that runtime does not support inbound conversion and has no `InboundConversionEndpoint`. For Fully Decoupled and Integrated Async only, ask: "Does the inbound payload need structural transformation before routing — for example, IDoc-to-XML, format normalisation, or canonical mapping — that cannot be handled in Step07?" If yes: include `InboundConversionEndpoint` as a String Parameter in the Partner Directory and add Step03 to the pipeline flow. If no: omit `InboundConversionEndpoint` entirely and do not mention Step03 in the flow. Do not default to including Step03 when the user has not confirmed it is needed.
 
 ## Simplest viable Partner Directory design
 Always present the simple Configuration Scenario option first when sender and receiver business-component abstraction is unnecessary. Ask whether the user wants the simple option or dedicated sender/receiver partner IDs.
@@ -69,7 +70,8 @@ At minimum evaluate:
 - `SAP_ApplicationID` for end-to-end monitoring
 - `tenantStage` for Virtual Landscape Option 1
 - `SapAuthenticatedUserName` propagation for authorized-user stage mapping
-- `customHeaderProperties`
+- `customHeaderProperties` — comma-separated list of custom header names to preserve across the JMS boundary; the generic inbound iflow reads this value and extends the standard fixed JMS header filter to include those additional headers
+- `testMode` — when set to `'true'` the message is processed but the MPL custom status is set to `ErrorInTestMode` and no outbound call is made; the header survives JMS in Fully Decoupled and Integrated Async
 - `_dc_*` dynamic-configuration headers
 - `partnerID` only when deliberately supplied
 
@@ -112,14 +114,16 @@ Do not put comments or metadata inside the JSON block. The `Comment:` line is al
 ### Fully decoupled asynchronous
 Typical stages: scenario Step01, generic Step02, optional scenario Step03, generic Step04 receiver determination, generic Step05 interface determination, generic Step06 outbound dispatch, scenario Step07. Use separate receiver/interface determination artifacts unless a documented bypass or combined mapping applies.
 
+For interface split with maintained order at runtime: the generic Step05 iterating splitter is not sufficient for idempotent per-interface delivery on retry. Use a Sequential Multicast + Idempotent Process Call pattern in Step07. See the maintained-order constraint under Routing-pattern decision.
+
 ### Integrated messaging runtime asynchronous
 Scenario Step01 calls the generic integrated async runtime, which can perform inbound conversion invocation and combined receiver/interface determination before generic Step06 and scenario Step07. For routing, use the exact combined determination schema expected by the deployed package.
 
 ### Integrated messaging runtime synchronous
-Use request-reply behavior and a single effective target path unless the deployed package explicitly supports another pattern. Do not apply asynchronous JMS retry assumptions.
+Use request-reply behavior and a single effective target path unless the deployed package explicitly supports another pattern. Integrated Sync has no JMS queues, no retry mechanism, and no inbound conversion (Step03 / `InboundConversionEndpoint` are not part of this runtime). At the end of processing, the iFlow explicitly removes pipeline-internal headers before returning the synchronous response — do not assume those headers are visible to the caller.
 
 ## XSLT and XML fidelity
-Never invent or oversimplify determination XML. Preserve the exact namespace, mandatory nodes, node names, capitalization, and hierarchy required by the deployed package. For the known combined integrated format, preserve `xmlns:ns0="http://sap.com/xi/XI/System"`, `ReceiverNotDetermined`, `Receiver`, `Interfaces`, `Interface`, `Index`, and `Service` as applicable.
+Never invent or oversimplify determination XML. Preserve the exact namespace, mandatory nodes, node names, capitalization, and hierarchy required by the deployed package. For the known combined integrated format, preserve `xmlns:ns0="http://sap.com/xi/XI/System"`, `ReceiverNotDetermined`, `Receiver`, `Interfaces`, `Interface`, `Index`, `Name`, and `Service` as applicable. Always include `<Name>` in each `<Interface>` node — it maps to header `SAP_ReceiverInterface` used in MPL monitoring.
 
 If the real package/schema is unavailable, mark the XSLT as illustrative and ask for the exported generic iFlow ZIP or package version. Use `references/xslt-combined-routing.md` for the validated example pattern.
 
@@ -149,15 +153,66 @@ Do not invent stage-specific Partner Directory entries. Explain exactly which en
 - Point-to-point (explicitly stated): propose String Parameter bypass for both receiver and interface determination without asking. Record the chosen mode in the Partner Directory entry description.
 - Pattern not explicitly stated (even if cardinality is 1 sender, 1 receiver, 1 interface): do not assume P2P and do not assume bypass. Ask the user whether they want String Parameter bypass or Binary Parameter XSLT for each determination independently before generating entries.
 - Recipient list: Binary Parameter XSLT required for receiver determination; return multiple `Receiver` nodes.
-- Interface split: Binary Parameter XSLT required for interface determination; return multiple `Interface` nodes in the correct schema.
+- Interface split: Binary Parameter XSLT required for interface determination; return multiple `Interface` nodes in the correct schema. **If maintained order at runtime is required**, the generic Step05 iterating splitter alone is NOT sufficient — on retry, Step05 replays all interfaces from the beginning, which risks duplicate delivery to interfaces that already succeeded. The solution is a dedicated Step07 using a **Sequential Multicast** flow step with an **Idempotent Process Call** per branch. See the maintained-order constraint below.
 - Integrated combined routing: return receiver and interface information in one mapping.
 - Receiver-not-determined: explicitly explain Error, Ignore, or Default behavior when used.
+
+### Interface split — maintained order at runtime constraint
+The generic Step05 iterating splitter processes `<Interface>` nodes sequentially in document order and stops on failure. However it does NOT guarantee idempotent per-interface delivery on retry: when Step05 is retried it replays from the first `<Interface>` node, potentially re-delivering to receivers that already received the message.
+
+When the user requires **maintained order AND idempotent delivery on retry**, the pattern must be implemented in **Step07** using a Sequential Multicast:
+
+1. The Step07 iFlow receives the message via ProcessDirect (from Step06).
+2. A **Sequential Multicast** flow step (`SequentialMulticast`) fans out to N branches in a fixed order controlled by `routingSequenceTable` — one branch per target interface.
+3. Each branch executes in order:
+   - A Local Integration Process for message mapping to that interface's format.
+   - A Content Modifier that sets property `SplitMessageID` = `${header.UniqueID}_Branch<N>`.
+   - An **Idempotent Process Call** (`skipOnDuplicate = true`, `sourceMessageID = ${property.SplitMessageID}`) wrapping the outbound ProcessDirect call. If the branch already delivered successfully in a prior attempt, it is skipped automatically.
+4. On retry, only branches that did not yet complete their Idempotent Process Call are executed.
+5. The exception subprocess sets MPL custom status `RetryViaParentFlow` so the parent JMS flow re-delivers.
+
+Implications:
+- The `UniqueID` header must be available in Step07 (propagated from upstream through the JMS boundary — include it in `customHeaderProperties` in Step01 if it is not a pipeline-standard header).
+- Each outbound target interface requires its own mapping Local Integration Process inside Step07.
+- This pattern applies to Fully Decoupled only (Step05 → Step06 → Step07). Integrated Async / Sync have no equivalent generic iterating-splitter step.
+- The `Index` value in the XSLT `<Interface>` node still determines document order in Step05's iterating splitter and maps to `SAP_ReceiverInterfaceIndex`; for the Sequential Multicast pattern it is the `routingSequenceTable` in Step07 that defines execution order.
 
 ### interfaceDetermination_<alias> validity constraint
 `interfaceDetermination_<alias>` String Parameters and Binary Parameters are ONLY valid as separate Partner Directory entries when receiver determination is ALSO a String Parameter bypass. When receiver determination uses Binary Parameter XSLT, there are no separate `interfaceDetermination_<alias>` entries of any type. Instead, embed the interface ProcessDirect addresses inside each `<Receiver>` node as `<Interfaces><Interface><Index>` and `<Service>` children in the receiver determination XSLT. Never generate `interfaceDetermination_<alias>` entries alongside a Binary Parameter `receiverDetermination`.
 
 ## Retry and error handling
-Differentiate JMS retry, DLQ behavior, parent-flow retry, and optional data-store restart extension. Treat data-store restart as an extension, not base behavior. Specify where `MaxJMSRetries` is stored and which flow consumes it. Never assume defaults unless found in the selected package/source.
+
+### Architecture applicability
+JMS retry applies only to Fully Decoupled and Integrated Async. Integrated Sync has no JMS queues and no retry mechanism.
+
+### Bypass option (`bypassOption` property)
+The generic inbound iflow (Step02 for Fully Decoupled; the integrated inbound iflow for Integrated Async and Sync) reads the Partner Directory during inbound processing and sets an internal `bypassOption` property **before** the message reaches any receiver or interface determination step. The valid values are:
+
+| Value | Who sets it | Effect |
+|---|---|---|
+| `p2p` | Inbound script (all three runtimes) | Both receiver and interface determination are bypassed — a `receiverDetermination` String Parameter held the alias AND an `interfaceDetermination_<alias>` String Parameter held the ProcessDirect address |
+| `skipRcvDet` | Inbound script (all three runtimes) | Receiver determination is bypassed — a `receiverDetermination` String Parameter held the alias; interface determination still runs (XSLT or String Parameter) |
+| `skipIfDet` | Receiver determination step (Step04 / integrated) | Receiver alias resolved by XSLT; interface determination is subsequently bypassed by the receiver determination step itself |
+
+### MaxJMSRetries (Fully Decoupled + Integrated Async only)
+- Partner Directory parameter ID: `MaxJMSRetries` (PascalCase) — this is what you create in the Partner Directory
+- Runtime header: `maxJMSRetries` (camelCase) — this is what the generic iflow reads/sets internally; the two names are not interchangeable
+- Read and set by the generic inbound iflow (Step02 for Fully Decoupled; integrated async inbound); NOT re-read by Step04 or Step05
+- Default when the PD parameter is absent: **5**
+- Set explicitly to avoid relying on the default
+
+### JMS queue naming (Fully Decoupled + Integrated Async only)
+Queue names are controlled by the `PipelineJMSQueuePrefix` iFlow parameter deployed on each generic iFlow. They are **not** configured in Partner Directory. Suffixes are fixed:
+
+| Queue | Purpose |
+|---|---|
+| `{PipelineJMSQueuePrefix}Q01` | Inbound queue written by Step02 |
+| `{PipelineJMSQueuePrefix}Q02` | Receiver-specific routing path |
+| `{PipelineJMSQueuePrefix}Q03` | Receiver determination queue read by Step04 |
+| `{PipelineJMSQueuePrefix}Q04` | Interface determination queue read by Step05 |
+| `{PipelineJMSQueuePrefix}Q01_DLQ` | Dead letter queue |
+
+Differentiate JMS retry, DLQ behavior, parent-flow retry, and optional data-store restart extension. Treat data-store restart as an extension, not base behavior.
 
 ## Review mode
 When reviewing supplied iFlow ZIPs, inspect BPMN, scripts, XSLT, mappings, parameters, JMS queues, ProcessDirect addresses, routes, exception subprocesses, headers, and package metadata. Build an evidence-based catalog of actual Partner Directory lookups and defaults. If implementation differs from documentation, report both and identify package/version evidence.
