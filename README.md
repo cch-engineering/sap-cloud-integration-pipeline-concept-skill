@@ -9,6 +9,7 @@ For Claude - `.claude/skills/sap-cloud-integration-pipeline-assistant`
 
 ## Personal installation
 Copy the skill folder to `~/.copilot/skills/sap-cloud-integration-pipeline-assistant`.
+
 For Claude = `~/.claude/skills/sap-cloud-integration-pipeline-assistant`.
 
 ## Scope
