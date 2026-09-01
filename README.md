@@ -17,3 +17,6 @@ The skill provides implementation assistance, Partner Directory guidance, XSLT/G
 
 ## Source files
 The `references` folder contains curated knowledge and links that `SKILL.md` loads on demand. External sources remain subject to their own terms.
+
+## Authors
+* **Ching Hong, Chong**
