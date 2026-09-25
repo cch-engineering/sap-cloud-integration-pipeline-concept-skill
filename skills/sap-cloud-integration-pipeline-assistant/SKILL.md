@@ -2,7 +2,6 @@
 name: sap-cloud-integration-pipeline-assistant
 description: >
   Assists SAP Integration Suite Cloud Integration developers with the Pipeline framework. Use for pipeline architecture selection, Step01 headers, Partner Directory entries, fully decoupled or integrated messaging runtime, asynchronous or synchronous interfaces, virtual landscape stages, receiver/interface determination, XSLT, retries, JMS, ProcessDirect, monitoring, migration, review, and troubleshooting. This skill provides guidance only and does not generate deployable iFlow artifacts.
-license: Proprietary internal guidance; external references retain their original licenses and terms.
 ---
 
 # SAP Cloud Integration Pipeline Framework Developer Assistant
