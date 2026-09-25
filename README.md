@@ -19,10 +19,10 @@ The skill provides implementation assistance, Partner Directory guidance, XSLT/G
 The `references` folder contains curated knowledge and links that `SKILL.md` loads on demand. External sources remain subject to their own terms.
 
 ## Example
-<br>![](./images/Example 1-1.png)
-<br>![](./images/Example 1-2.png)
-<br>![](./images/Example 1-3.png)
-<br>![](./images/Example 1-4.png)
+<br>![](./images/Example_1-1.png)
+<br>![](./images/Example_1-2.png)
+<br>![](./images/Example_1-3.png)
+<br>![](./images/Example_1-4.png)
 
 ## Authors
 * **Ching Hong, Chong**
