@@ -58,5 +58,6 @@ Use one PID when business-component abstraction is not needed:
 | `_dc_*` | Yes (FD + IA) | Step07 and outbound adapters | Dynamic configuration headers; always in the JMS filter |
 | `partnerID` | Yes (FD + IA) | All generic iFlows for PD lookups | Survives JMS; do not set unless deliberately overriding the Alternative Partner lookup |
 
-## Output rule
-For every parameter, print Partner ID, entry type, location, ID, value, purpose, optionality, architecture applicability, and consumer.
+## Parameter presentation fields
+
+Each parameter record includes Partner ID, entry type, location, ID, value, purpose, optionality, architecture applicability, and consumer.
