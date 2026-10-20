@@ -23,6 +23,8 @@ Do not claim to generate, export, package, import, modify, or deploy a complete 
 
 If sources conflict, identify the conflict, use the highest-priority source, and do not silently merge incompatible behavior. If the user asks for the latest SAP standard, consult current SAP sources and explain version differences.
 
+For package-specific behavior, identify the deployed package and iFlow versions before applying guidance. The latest workspace package set reviewed on 2026-10-20 is Generic Inbound 1.0.9, Generic Pipelines 1.0.6, Generic Outbound 1.1.0, and Templates 1.2.1. Treat these as the reviewed baseline, not a claim that later versions do not exist. See `references/internal-study-notes.md` for artifact-verified changes and version constraints.
+
 ## Mandatory discovery gate
 Before giving setup steps for a generic or insufficiently specified scenario, ask only for missing answers:
 1. Interface: asynchronous or synchronous?
@@ -69,7 +71,8 @@ At minimum evaluate:
 - `SAP_ApplicationID` for end-to-end monitoring
 - `tenantStage` for Virtual Landscape Option 1
 - `SapAuthenticatedUserName` propagation for authorized-user stage mapping
-- `customHeaderProperties` — comma-separated list of custom header names to preserve across the JMS boundary; the generic inbound iflow reads this value and extends the standard fixed JMS header filter to include those additional headers
+- `customHeaderProperties` — use the deployed helper's supported format. In the reviewed package, pipe-delimited `name:value` entries (for example, `itemId:${property.itemId}|region:${property.region}`) and a Base64-encoded JSON map are supported; the helper normalizes the map and encodes it for propagation across JMS. Do not describe this as a comma-separated list of names. Verify the specific scenario template and package version.
+- For XI/IDoc inbound using `SapQualityOfService = ExactlyOnceInOrder`, consider the Step01 EOIO route only after confirming the required Partner Directory entry and target. `InOrderRouteOption` can route to an exclusive queue or ProcessDirect; this does not provide end-to-end EOIO across the rest of the pipeline.
 - `testMode` — when set to `'true'` the message is processed but the MPL custom status is set to `ErrorInTestMode` and no outbound call is made; the header survives JMS in Fully Decoupled and Integrated Async
 - `_dc_*` dynamic-configuration headers
 - `partnerID` only when deliberately supplied
@@ -119,7 +122,19 @@ For interface split with maintained order at runtime: the generic Step05 iterati
 Scenario Step01 calls the generic integrated async runtime, which can perform inbound conversion invocation and combined receiver/interface determination before generic Step06 and scenario Step07. For routing, use the exact combined determination schema expected by the deployed package.
 
 ### Integrated messaging runtime synchronous
-Use request-reply behavior and a single effective target path unless the deployed package explicitly supports another pattern. Integrated Sync has no JMS queues, no retry mechanism, and no inbound conversion (Step03 / `InboundConversionEndpoint` are not part of this runtime). At the end of processing, the iFlow explicitly removes pipeline-internal headers before returning the synchronous response — do not assume those headers are visible to the caller.
+Use request-reply behavior and a single effective target path unless the deployed package explicitly supports another pattern. Integrated Sync has no JMS queues, no retry mechanism, and no inbound conversion (Step03 / `InboundConversionEndpoint` are not part of this runtime). At the end of processing, the iFlow removes pipeline-internal headers before returning the synchronous response — do not assume those headers are visible to the caller. Generic Pipelines 1.0.6 no longer deletes `SAP_Receiver`; do not include it in the cleanup list for that version.
+
+### Generic XI/IDoc outbound Step08
+Generic Outbound 1.1.0 provides Step08 XI and IDoc flows, plus dedicated XI-on-Edge and IDoc-on-Edge variants. Use the Edge flows when deploying those outbound scenarios on Edge Integration Cell. In this release, the Edge flows support proxy type `Internet`; `OnPremise` is unsupported and `Manual` is not yet available. Confirm the adapter's proxy support against the package actually deployed.
+
+The XI and IDoc outbound flows support receiver parties in Partner Directory adapter configuration. Receiver interface names containing `/` are supported, but replace `/` with `_` in the corresponding Partner Directory parameter names. For IDoc, `EnableControlRecordCheck` defaults to `true`; setting it to `false` disables the generic flow's mandatory EDIDC-field validation so the backend can perform that validation instead. `OverrideControlRecordParameters` supplies the fallback list of EDIDC fields to override; scenario headers take precedence, followed by interface-specific Partner Directory settings, then the externalized parameter.
+
+Step08 supports custom pre-transmission exits. The exit receives `customXPipelineStep = 08` and `customXProtocol` (`xi` or `idoc`). Step06 supports custom post-processing; `CustomXPostEnabled` and `CustomXPostEndpoint` apply to Step06 in the reviewed version. Custom error pre-processing can run before standard error handling. The custom-exit template supports Step08, and the custom-error template allows `customX(.*)` headers.
+
+### XI/IDoc inbound EOIO
+Generic Inbound 1.0.9 allows the Step01 XI and IDoc flows to route Exactly Once In Order messages to an exclusive queue or a ProcessDirect endpoint. The IDoc flow reads the optional Partner Directory String Parameter `InOrderRouteOption` for the partner ID in `partnerID`. Supported value forms are `exclusivequeue:<queue>`, `exclusivequeue:senderContext`, and `processdirect:<endpoint>`. `senderContext` uses the sender queue context when available. Missing or malformed values use the flow's default EOIO route. This route is a controlled bypass of most pipeline processing, not end-to-end EOIO support; verify the exact behavior and topology in the deployed Step01 flow.
+
+Sender-party-specific inbound conversion lookup (`readInboundConversionFromPD`) is implemented in the **Generic Pipelines 1.0.6** package (Step02 Fully Decoupled and the Integrated Async inbound iflow), not in Generic Inbound 1.0.9 (Step01) — Step01 does not contain this script. The precedence order, highest first, is: (1) header `customXInboundConversionEndpoint` if already set by an upstream custom exit, (2) PD String Parameter `InboundConversionEndpoint_<SenderParty>.<SenderAlias>`, (3) `InboundConversionEndpoint_<SenderAlias>`, (4) the general `InboundConversionEndpoint`. For XI Alternative Partner lookup using sender, interface, and namespace, `/` is normalized to `_` in the interface scheme. The older sender-plus-interface lookup with fixed scheme `SenderInterface` already supported slash characters.
 
 ## XSLT and XML fidelity
 Never invent or oversimplify determination XML. Preserve the exact namespace, mandatory nodes, node names, capitalization, and hierarchy required by the deployed package. For the known combined integrated format, preserve `xmlns:ns0="http://sap.com/xi/XI/System"`, `ReceiverNotDetermined`, `Receiver`, `Interfaces`, `Interface`, `Index`, `Name`, and `Service` as applicable. Always include `<Name>` in each `<Interface>` node — it maps to header `SAP_ReceiverInterface` used in MPL monitoring.
@@ -174,7 +189,7 @@ Implications:
 - The `UniqueID` header must be available in Step07 (propagated from upstream through the JMS boundary — include it in `customHeaderProperties` in Step01 if it is not a pipeline-standard header).
 - Each outbound target interface requires its own mapping Local Integration Process inside Step07.
 - This pattern applies to Fully Decoupled only (Step05 → Step06 → Step07). Integrated Async / Sync have no equivalent generic iterating-splitter step.
-- The `Index` value in the XSLT `<Interface>` node still determines document order in Step05's iterating splitter and maps to `SAP_ReceiverInterfaceIndex`; for the Sequential Multicast pattern it is the `routingSequenceTable` in Step07 that defines execution order.
+- The `Index` value in the XSLT `<Interface>` node maps to `SAP_ReceiverInterfaceIndex` for monitoring; it does not sort Step05's iterating splitter, which follows XML document order. For the Sequential Multicast pattern, `routingSequenceTable` in Step07 defines execution order.
 
 ### interfaceDetermination_<alias> validity constraint
 `interfaceDetermination_<alias>` String Parameters and Binary Parameters are ONLY valid as separate Partner Directory entries when receiver determination is ALSO a String Parameter bypass. When receiver determination uses Binary Parameter XSLT, there are no separate `interfaceDetermination_<alias>` entries of any type. Instead, embed the interface ProcessDirect addresses inside each `<Receiver>` node as `<Interfaces><Interface><Index>` and `<Service>` children in the receiver determination XSLT. Never generate `interfaceDetermination_<alias>` entries alongside a Binary Parameter `receiverDetermination`.
@@ -185,7 +200,11 @@ Implications:
 JMS retry applies only to Fully Decoupled and Integrated Async. Integrated Sync has no JMS queues and no retry mechanism.
 
 ### Bypass option (`bypassOption` property)
-The generic inbound iflow (Step02 for Fully Decoupled; the integrated inbound iflow for Integrated Async and Sync) reads the Partner Directory during inbound processing and sets an internal `bypassOption` property **before** the message reaches any receiver or interface determination step. The valid values are:
+The `bypassOption` property is computed by the **same** `readBypassOptionFromPD` script in two places, because it is an exchange *property* and does not survive the JMS boundary (Fully Decoupled) or step-to-step ProcessDirect calls on its own:
+1. **Step01** (Generic XI/IDoc Inbound) computes it first and branches on it immediately (`p2p` / `skipRcvDet` sequence-flow conditions exist directly in the Step01 canvas) before the message is ever written to the Q01 JMS queue.
+2. The generic inbound iflow (Step02 for Fully Decoupled; the integrated inbound iflow for Integrated Async and Sync) re-reads the Partner Directory and re-sets `bypassOption` after the message is received from Step01/JMS, before the message reaches any receiver or interface determination step.
+
+The valid values are:
 
 | Value | Who sets it | Effect |
 |---|---|---|
@@ -199,9 +218,16 @@ The generic inbound iflow (Step02 for Fully Decoupled; the integrated inbound if
 - Read and set by the generic inbound iflow (Step02 for Fully Decoupled; integrated async inbound); NOT re-read by Step04 or Step05
 - Default when the PD parameter is absent: **5**
 - Set explicitly to avoid relying on the default
+- Verified in the reviewed package: Fully Decoupled Step02 (`PIP_02_Generic_InboundProcessing`, Generic Pipelines 1.0.6) and Step06 (Generic Outbound 1.1.0) both use `${header.SAPJMSRetries} >= ${header.maxJMSRetries} or ${header.maxJMSRetries} = '0'` to decide the retry limit. However, the Integrated Messaging Runtime Async inbound iflow (`PIP_02_Generic_IntegratedMessagingAsync`, same Generic Pipelines 1.0.6 package) uses strict `${header.SAPJMSRetries} > ${header.maxJMSRetries}` instead — a genuine inconsistency within the same reviewed package version. Confirm the exact comparison operator against the deployed Step02/Step06 flow for the runtime in use rather than assuming `>=` everywhere.
+
+### SkipRetriesProfile / CustomXSkipRetries (separate from MaxJMSRetries)
+Generic Outbound 1.1.0 Step06 also reads an independent retry-skip mechanism via `readRetryHandlingFromPDOutbound`, distinct from `MaxJMSRetries`:
+- Partner Directory String Parameter `SkipRetriesProfile`, read by partner ID, takes precedence over any global Value Mapping configuration and is surfaced as header `CustomXSkipRetriesProfile`.
+- Without a PD override, a global configuration pair of exchange properties `CustomXSkipRetries` (`true`/`false`) and `CustomXSkipRetriesSource` (`Default`, `ValueMapping`, or `PartnerDirectory`) — populated via a Content Modifier and validated against a Value Mapping — decides whether retries are skipped; invalid/missing values force `CustomXSkipRetries=false` (retry proceeds).
+- This feature corresponds to the reviewed Templates package artifacts `Pipeline V2 - Value Mapping - Skip Retry Configuration` and `Pipeline v2 - Partner Directory Upload Helper - Skip Retry` (`RL04_helper.iflw`). Treat it as additive to, not a replacement for, `MaxJMSRetries`.
 
 ### JMS queue naming (Fully Decoupled + Integrated Async only)
-Queue names are controlled by the `PipelineJMSQueuePrefix` iFlow parameter deployed on each generic iFlow. They are **not** configured in Partner Directory. Suffixes are fixed:
+Queue names are controlled by externalized iFlow parameters, not Partner Directory. The shared async pipeline queues use the fixed suffixes below. Generic Outbound Step06 additionally supports `PipelineJMSQueueSuffix` for its receiver-specific outbound queue: `{PipelineJMSQueuePrefix}Q04{PipelineJMSQueueSuffix}`, with `{PipelineJMSQueuePrefix}Q04{PipelineJMSQueueSuffix}_DLQ` for its DLQ. Configure this suffix on Step06 only when needed and validate queue uniqueness and length against the deployed package.
 
 | Queue | Purpose |
 |---|---|
@@ -210,6 +236,8 @@ Queue names are controlled by the `PipelineJMSQueuePrefix` iFlow parameter deplo
 | `{PipelineJMSQueuePrefix}Q03` | Receiver determination queue read by Step04 |
 | `{PipelineJMSQueuePrefix}Q04` | Interface determination queue read by Step05 |
 | `{PipelineJMSQueuePrefix}Q01_DLQ` | Dead letter queue |
+
+The Step06 suffix is an additional package-specific option and does not replace the shared queue names above. See `references/pipeline-parameters.md` for the externalized parameter inventory.
 
 Differentiate JMS retry, DLQ behavior, parent-flow retry, and optional data-store restart extension. Treat data-store restart as an extension, not base behavior.
 
@@ -227,6 +255,8 @@ When reviewing supplied iFlow ZIPs, inspect BPMN, scripts, XSLT, mappings, param
 8. JMS, ProcessDirect, retries, and errors
 9. Test and monitoring checklist
 10. Risks, version notes, and SAP references
+11. Naming and package setup recommendations when relevant; consult `references/naming-conventions.md` and label conventions as non-binding.
+12. Deployed package versions and applicable release-specific features or constraints.
 
 ## Standard SAP references
 When asked for standard SAP references, consult `references/standard-sap-references.md`. Put SAP Help first, SAP Community next, and the sample repository when runnable examples help. Recommend beginners test SAP samples in a non-production tenant before adapting them.
@@ -234,6 +264,7 @@ When asked for standard SAP references, consult `references/standard-sap-referen
 ## Reference loading
 Load only the relevant files:
 - `references/pipeline-parameters.md` for Partner Directory parameters.
+- `references/naming-conventions.md` for non-binding partner IDs, scenario flow names/endpoints, package copying, and pipeline prefix guidance.
 - `references/partner-directory-entry-types.md` for exact entry formatting.
 - `references/virtual-landscape.md` for virtual stages.
 - `references/xslt-combined-routing.md` for combined integrated routing.

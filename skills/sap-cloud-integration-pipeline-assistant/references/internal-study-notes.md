@@ -91,9 +91,9 @@ Custom headers beyond this list are preserved only if their names are listed in 
 Source: Step02_Sync IFLW DELETE Content Modifier, verified from ZIP. Applies to Integrated Sync only.
 
 Before returning the synchronous response, the integrated sync iFlow explicitly deletes pipeline-internal headers:
-`sap_receiveralias`, `partnerid`, `auditlogheader`, `sap_senderinterface`, `tenantstage`, `sap_sender`, `sap_receiver`, `sap_outboundprocessingendpoint`, `dc(.*)`, `customheaderproperties`, `xsltmapping`, `sap_receiverinterfaceindex`
+`sap_receiveralias`, `partnerid`, `auditlogheader`, `sap_senderinterface`, `tenantstage`, `sap_sender`, `sap_outboundprocessingendpoint`, `dc(.*)`, `customheaderproperties`, `xsltmapping`, `sap_receiverinterfaceindex`
 
-These headers are not visible to the synchronous caller.
+These headers are not visible to the synchronous caller. Generic Pipelines 1.0.6 removes the deletion of `SAP_Receiver`; do not claim that header is stripped in this version.
 
 ### Step07 — Interface split with maintained order at runtime (Sequential Multicast + Idempotent Process Call)
 
@@ -114,7 +114,50 @@ Step05 processes `<Interface>` nodes sequentially in document order and stops on
 **Step01 requirement for this pattern:**
 The `UniqueID` header must be available in Step07. It is included in Step07's allowed header list. Verify that `UniqueID` is either a pipeline-standard header or added to `customHeaderProperties` in Step01.
 
-**Step01 `customHeaderProperties` value format (from Scenario 3 sample):**
-The Step01 IFLW sets `customHeaderProperties` as a pipe-separated `key:value` string:
-`productId:${property.productId}|category:${property.category}|purchaseOrder:${property.purchaseOrder}`
-The generic `addCustomHeaderProperties.groovy` reads this and sets each key as a separate header, making them available beyond the JMS boundary.
+**Step01 `customHeaderProperties` value format:**
+The Scenario 3 sample uses a pipe-separated `key:value` string, for example `productId:${property.productId}|category:${property.category}|purchaseOrder:${property.purchaseOrder}`. The reviewed `addCustomHeaderProperties.groovy` also accepts a Base64-encoded JSON map, normalizes the entries, and Base64-encodes the JSON result in the header for propagation across JMS. Do not describe the format as a comma-separated list of names. In Generic Inbound 1.0.9, the IDoc Step01 custom exit runs before the add-custom-header-properties script, so the exit can set values for this map.
+
+## Package release verification (2026-10-20)
+
+Artifacts inspected from `Additional Reference/latest framework file/`:
+
+| Package | Reviewed version | Changelog date |
+| --- | ---: | --- |
+| Generic Inbound | 1.0.9 | 13/10/2026 |
+| Generic Pipelines | 1.0.6 | 13/10/2026 |
+| Generic Outbound | 1.1.0 | 13/10/2026 |
+| Templates | 1.2.1 | 13/10/2026 |
+
+These are the versions in the provided exports, not a claim that later versions are unavailable. Recheck deployed package versions before applying this guidance.
+
+### Generic Inbound 1.0.9
+
+- XI and IDoc Step01 support routing messages with `SapQualityOfService = ExactlyOnceInOrder` to an exclusive queue or ProcessDirect endpoint. The IDoc `readEoioOptionFromPD.groovy` reads Partner Directory String Parameter `InOrderRouteOption` from `partnerID`. Values are `exclusivequeue:<queue>`, `exclusivequeue:senderContext`, or `processdirect:<endpoint>`. `senderContext` uses `SapQueueId` when available; missing or malformed values leave the default EOIO route in effect. This is not end-to-end EOIO through the pipeline.
+- XI Alternative Partner lookup using sender, interface, and namespace normalizes `/` in the interface scheme to `_`; the fixed `SenderInterface` scheme lookup already supports slash in the interface.
+- Custom error pre-processing is supported before standard error handling. Step-specific custom-pre endpoints use `CustomXPreEndpoint_<Step>` before the generic endpoint.
+- IDoc Step01 runs its custom exit before `addCustomHeaderProperties.groovy`, enabling values created by the custom exit to enter the custom-header map.
+- Step01 receiver queue names are added to custom header attributes. The system tenant name lookup no longer relies on the unsupported Groovy environment class.
+
+### Generic Pipelines 1.0.6
+
+- Sender-party-specific inbound conversion lookup order: `customXInboundConversionEndpoint` header; `InboundConversionEndpoint_<SenderParty>.<SenderAlias>`; `InboundConversionEndpoint_<SenderAlias>`; general `InboundConversionEndpoint`.
+- `CustomXPreEndpoint_<Step>` is checked before a header-provided generic endpoint and the generic Partner Directory `CustomXPreEndpoint` value.
+- Standard error handling supports an optional custom pre-processing exit. Retry-limit comparisons use `>=` in Step02.
+- Integrated Sync no longer deletes header `SAP_Receiver` before returning the response.
+- `restoreMessage.groovy` fixes a type-conversion error when restoring original XML from the DLQ after conversion to a non-XML payload.
+
+### Generic Outbound 1.1.0
+
+- Step08 XI and IDoc flows support receiver-party adapter configuration. `/` in receiver interface names must be represented as `_` in Partner Directory parameter suffixes.
+- Step08 XI/IDoc supports pre-transmission custom exits with headers `customXPipelineStep=08` and `customXProtocol=xi|idoc`.
+- Step06 supports global and scenario-specific post-processing; scenario-specific settings are `CustomXPostEnabled` and `CustomXPostEndpoint`. `CustomXPostEnabled` is supported for Step06 only.
+- IDoc `EnableControlRecordCheck` defaults to `true`; `false` disables mandatory EDIDC-field validation in Cloud Integration.
+- IDoc override field list precedence: `SAP_IDoc_EDIDC_overrideControlRecordParameters` header; interface-specific Partner Directory String Parameter `OverrideControlRecordParameters_<InterfaceSuffix>` (lowercase initial form is also read); externalized `OverrideControlRecordParameters` fallback. Field values prefer `SAP_IDoc_EDIDC_<Field>` headers, then corresponding configured defaults. Interface suffixes normalize `/` to `_`.
+- Dedicated XI and IDoc Step08 Edge flows are available. Their current proxy type is Internet; OnPremise is unsupported and Manual is not yet available.
+- Step06 retry-limit comparison uses `>=`; `restoreMessage.groovy` includes the XML-to-non-XML DLQ restore fix. XI/IDoc adapter routing conditions were replaced with Groovy logic.
+
+### Templates 1.2.1 and related package lineage
+
+- Custom Exit template supports Step08; Custom Error Handling template adds `customX(.*)` to its allowed headers.
+- Templates 1.2.0 added an IDoc one-to-many outbound template and skip-retry Value Mapping/Partner Directory helper flows; these are included in the supplied 1.2.1 package.
+- Generic Inbound 1.0.8 added flexible landscape stages for XI point-to-point bypass. Treat this as a prior-version addition included in the 1.0.9 flow lineage, not a new 1.0.9 feature.
