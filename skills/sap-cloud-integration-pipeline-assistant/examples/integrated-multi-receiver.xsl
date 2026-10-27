@@ -9,11 +9,11 @@
       <xsl:if test="/*:MaintenanceOrder/MaintenanceOrderType/MaintenanceOrderType = 'YBA1'">
         <Receiver>
           <Service>Receiver_AssetRegistry</Service>
-          <Interfaces><Interface><Index>1</Index><Service>/PIP_WY/PRD/Step07/MaintenanceOrder/Receiver_AssetRegistry</Service></Interface></Interfaces>
+          <Interfaces><Interface><Index>1</Index><Name>SI_MaintenanceOrder_To_AssetRegistry</Name><Service>/PIP_WY/PRD/Step07/MaintenanceOrder/Receiver_AssetRegistry</Service></Interface></Interfaces>
         </Receiver>
         <Receiver>
           <Service>Receiver_Crow</Service>
-          <Interfaces><Interface><Index>1</Index><Service>/PIP_WY/PRD/Step07/MaintenanceOrder/Receiver_Crow</Service></Interface></Interfaces>
+          <Interfaces><Interface><Index>1</Index><Name>SI_MaintenanceOrder_To_Crow</Name><Service>/PIP_WY/PRD/Step07/MaintenanceOrder/Receiver_Crow</Service></Interface></Interfaces>
         </Receiver>
       </xsl:if>
     </ns0:Receivers>

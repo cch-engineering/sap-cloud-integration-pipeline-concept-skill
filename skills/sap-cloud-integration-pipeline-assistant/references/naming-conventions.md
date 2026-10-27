@@ -1,6 +1,6 @@
-# Pipeline Naming and Package Setup Recommendations
+# Pipeline Naming, Parties, and Character Recommendations
 
-Source: [SAP Community: Best Practices Pipeline for Cloud Integration: Naming Conventions](https://community.sap.com/t5/integration-blog-posts/best-practices-pipeline-for-cloud-integration-naming-conventions/ba-p/14389443). The article presents recommendations, not binding SAP requirements. Adapt them to local policies and validate package names, parameters, queue behavior, and endpoints against the deployed Pipeline version.
+Sources: [SAP Community: Naming Conventions](https://community.sap.com/t5/integration-blog-posts/best-practices-pipeline-for-cloud-integration-naming-conventions/ba-p/14389443), [SAP Community: How to Deal with Slash in the Interface Name](https://community.sap.com/t5/integration-blog-posts/best-practices-pipeline-for-cloud-integration-how-to-deal-with-slash-in-the/ba-p/14504769), and [SAP Community: Working with Parties](https://community.sap.com/t5/integration-blog-posts/best-practices-pipeline-for-cloud-integration-working-with-parties/ba-p/14508402). These articles provide recommendations, not binding SAP requirements. Adapt them to local policies and validate package names, parameters, queue behavior, and endpoints against the deployed Pipeline version.
 
 ## Partner IDs
 
@@ -14,6 +14,42 @@ Partner Directory partner IDs can represent different roles:
 | Party Alias | IDoc partner identity for partner types other than `LS` | `PRTY_` |
 
 Treat system aliases and business components consistently when a component may later become a landscape-specific business system. A business system can map to a system alias through an Alternative Partner entry on the system-alias partner. Do not rename actual landscape system identifiers solely to match a suggested prefix.
+
+## Party-aware Scenarios
+
+For generic sender/receiver party scenarios, represent the party and system together as `<Party>.<SystemName>` (period separator), for example `BuyerA.BC_Sender1`. Use the combined value consistently; do not treat the party as a replacement for the system or alias.
+
+### Sender and Configuration Scenario
+
+- Set scenario-specific `SAP_Sender` to `<SenderParty>.<SenderSystem>` when the sender has a party. Generic XI inbound derives this combination from adapter headers `SapSenderParty` and `SapSenderService`; other sender flows must provide the combined sender value as appropriate.
+- The Alternative Partner Agency that resolves the Configuration Scenario uses `<SenderParty>.<SenderSystemAlias>`. In a staged landscape, first map the actual sender business-system name to the stable system alias for that stage; then use the party plus alias to resolve the scenario.
+- Keep the normal Alternative Partner Scheme/Id rules for the interface. Without namespace, use Scheme `SenderInterface` and the actual interface name as Id. With namespace, use the interface name as Scheme and namespace as Id, subject to slash normalization below.
+- Sender-specific inbound conversion can use `InboundConversionEndpoint_<SenderParty>.<SenderSystemAlias>` as the String Parameter ID suffix. The deployed `readInboundConversionFromPD` lookup also accepts `customXInboundConversionEndpoint` as a higher-priority header override; see `SKILL.md` and `pipeline-parameters.md` for the full precedence.
+
+### Receiver Determination and Adapter Parameters
+
+- In receiver-determination XSLT, represent a party receiver's Service as `<ReceiverParty>.<ReceiverSystemAlias>`. Prefer the alias in the XSLT when stages map that alias to different actual system names, so the mapping can be reused across stages.
+- For point-to-point bypass, the `receiverDetermination` String Parameter value is the combined receiver party and system/alias, not just the system name.
+- For Partner Directory settings on the Configuration Scenario partner, suffix parameter IDs with the combined party and system alias; append the receiver interface too when that parameter is interface-specific. For example: `InterfaceNameDetermination_<ReceiverParty>.<ReceiverSystemAlias>` and `XIAuthenticationType_<ReceiverParty>.<ReceiverSystemAlias>_<ReceiverInterface>`.
+- If maintaining party-specific settings under a separate party partner ID, use the party name for that partner ID (a `PRTY_` prefix is a naming recommendation). For these entries, suffix system-specific parameters with the actual receiver business-system name, not the alias, for example `XIEndpoint_<ActualBusinessSystem>`.
+- Without landscape staging, a business component can be used directly as the receiver system component; apply the corresponding party/system suffix rules using that business component name.
+
+When parties are present, generic flows can derive `SAP_SenderParty` and `SAP_ReceiverParty` from the combined sender/receiver values and expose `SenderParty`, `SenderSystem`, `ReceiverParty`, and `ReceiverSystem` in MPL custom-header properties. Treat these as derived monitoring values unless the deployed flow confirms otherwise; do not incorrectly require Step01 to set all of them.
+
+This generic party convention does not replace IDoc-specific partner-type handling. For IDoc inbound parties where partner type is not `LS`, consult the dedicated enhanced IDoc inbound guidance and verify the current generic inbound flow behavior.
+
+## Restricted Characters in Interface Names
+
+Partner Directory has field-specific character restrictions. Do not replace every slash indiscriminately:
+
+- For an inbound XI sender with a namespace, Generic Inbound 1.0.9 normalizes every `&`, `%`, and `/` in the interface name to `_` when it builds the Alternative Partner Scheme or fallback partner ID. Configure the Alternative Partner Scheme with the same `[&%/]` normalization.
+- For outbound XI/IDoc interface-specific Partner Directory String Parameter IDs, the reviewed Step08 scripts normalize `/` to `_` in the interface suffix. Do not assume the same `&` or `%` normalization for those outbound suffixes without verifying the deployed script.
+- Alternative Partner Id and String Parameter Value preserve the original interface name where that field supports it; do not normalize it merely because a different lookup key is restricted.
+- Inbound without a namespace uses constant Scheme `SenderInterface` and the interface name in Alternative Partner Id, so preserve `/` in the Id.
+- Inbound with a namespace uses the interface name as Scheme and namespace as Id; replace `&`, `%`, and `/` with `_` in the Scheme only.
+- For outbound configuration, normalize `/` only when the receiver interface is part of a Partner Directory String Parameter ID suffix. Keep the actual interface name in runtime headers and in fields/values that support `/`; message-header and externalized-parameter configuration does not need the Partner Directory ID substitution.
+
+The sender interface may therefore remain slash-containing at runtime and in Partner Directory Id/value fields even when a lookup key uses the underscore-normalized form. Confirm the exact lookup construction in the deployed package version.
 
 ## Scenario Flow Names and Endpoints
 
@@ -57,4 +93,4 @@ Dedicated inbound or outbound channels can use copied Generic Inbound or Generic
 
 ## Source and Applicability
 
-This is non-binding naming guidance based on the SAP Community article cited above. It complements, but does not replace, the deployed package documentation and the existing Partner Directory, queue, and routing rules. When guidance conflicts with an inspected package or higher-priority current SAP documentation, report the conflict and follow the applicable source precedence in `SKILL.md`.
+These are non-binding SAP Community recommendations. They complement, but do not replace, SAP Help, deployed package documentation, and the existing Partner Directory, queue, and routing rules. When guidance conflicts with an inspected package or higher-priority current SAP documentation, report the conflict and follow the applicable source precedence in `SKILL.md`.

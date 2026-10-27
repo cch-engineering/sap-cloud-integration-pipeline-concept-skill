@@ -124,15 +124,18 @@ Artifacts inspected from `Additional Reference/latest framework file/`:
 | Package | Reviewed version | Changelog date |
 | --- | ---: | --- |
 | Generic Inbound | 1.0.9 | 13/10/2026 |
-| Generic Pipelines | 1.0.6 | 13/10/2026 |
-| Generic Outbound | 1.1.0 | 13/10/2026 |
+| Generic Pipelines | 1.0.7 | 20/10/2026 |
+| Generic Outbound | 1.1.1 | 20/10/2026 |
 | Templates | 1.2.1 | 13/10/2026 |
 
-These are the versions in the provided exports, not a claim that later versions are unavailable. Recheck deployed package versions before applying this guidance.
+These are the versions in the provided 20261026 exports, not a claim that later versions are unavailable. Recheck deployed package versions before applying this guidance. Generic Pipelines 1.0.7 and Generic Outbound 1.1.1 fix a `toLowerCase()` condition issue when checking the `testMode` header.
 
 ### Generic Inbound 1.0.9
 
-- XI and IDoc Step01 support routing messages with `SapQualityOfService = ExactlyOnceInOrder` to an exclusive queue or ProcessDirect endpoint. The IDoc `readEoioOptionFromPD.groovy` reads Partner Directory String Parameter `InOrderRouteOption` from `partnerID`. Values are `exclusivequeue:<queue>`, `exclusivequeue:senderContext`, or `processdirect:<endpoint>`. `senderContext` uses `SapQueueId` when available; missing or malformed values leave the default EOIO route in effect. This is not end-to-end EOIO through the pipeline.
+- XI and IDoc Step01 support routing messages with Exactly Once In Order to an exclusive queue or ProcessDirect endpoint. Configure String Parameter `InOrderRouteOption` on the Configuration Scenario partner ID with `ExclusiveQueue:UseSenderContextAsQueue`, `ExclusiveQueue:<queue name>`, or `ProcessDirect:<endpoint>`. Missing or invalid configuration fails with custom status `ConfigurationOptionNotSupported`; there is no default EOIO route.
+- XI sender EOIO uses `SapQualityOfService=ExactlyOnceInOrder` and `SapQueueId`. IDoc sender EOIO uses `SapPlainSoapQoS` and `SapPlainSoapQueueId` derived from `ARCKEY`; the generic IDoc flow maps these to `SapQualityOfService` and `SapQueueId` for downstream handling.
+- Sender-context queue routing requires a downstream exclusive queue named to match the incoming queue ID; a single consumer preserves order and JMS can retry delivery. Configured-name queue routing uses the chosen exclusive queue. ProcessDirect invokes the target synchronously, and the target flow must implement in-order processing. The receiver can optionally be specified using `receiverDetermination` or downstream header `SAP_Receiver` because normal receiver determination is bypassed.
+- XI-to-XI route-through can point ProcessDirect to the generic XI Step08 outbound flow. The XI QoS and queue ID headers pass through to the receiver adapter, including dynamic queue IDs; the sender system handles restart after failure. This does not establish end-to-end EOIO support across the whole pipeline.
 - XI Alternative Partner lookup using sender, interface, and namespace normalizes `/` in the interface scheme to `_`; the fixed `SenderInterface` scheme lookup already supports slash in the interface.
 - Custom error pre-processing is supported before standard error handling. Step-specific custom-pre endpoints use `CustomXPreEndpoint_<Step>` before the generic endpoint.
 - IDoc Step01 runs its custom exit before `addCustomHeaderProperties.groovy`, enabling values created by the custom exit to enter the custom-header map.
@@ -146,6 +149,10 @@ These are the versions in the provided exports, not a claim that later versions 
 - Integrated Sync no longer deletes header `SAP_Receiver` before returning the response.
 - `restoreMessage.groovy` fixes a type-conversion error when restoring original XML from the DLQ after conversion to a non-XML payload.
 
+### Generic Pipelines 1.0.7
+
+- Fixes a `toLowerCase()` condition issue while checking the `testMode` header in all flows.
+
 ### Generic Outbound 1.1.0
 
 - Step08 XI and IDoc flows support receiver-party adapter configuration. `/` in receiver interface names must be represented as `_` in Partner Directory parameter suffixes.
@@ -155,6 +162,10 @@ These are the versions in the provided exports, not a claim that later versions 
 - IDoc override field list precedence: `SAP_IDoc_EDIDC_overrideControlRecordParameters` header; interface-specific Partner Directory String Parameter `OverrideControlRecordParameters_<InterfaceSuffix>` (lowercase initial form is also read); externalized `OverrideControlRecordParameters` fallback. Field values prefer `SAP_IDoc_EDIDC_<Field>` headers, then corresponding configured defaults. Interface suffixes normalize `/` to `_`.
 - Dedicated XI and IDoc Step08 Edge flows are available. Their current proxy type is Internet; OnPremise is unsupported and Manual is not yet available.
 - Step06 retry-limit comparison uses `>=`; `restoreMessage.groovy` includes the XML-to-non-XML DLQ restore fix. XI/IDoc adapter routing conditions were replaced with Groovy logic.
+
+### Generic Outbound 1.1.1
+
+- Fixes a `toLowerCase()` condition issue while checking the `testMode` header in Step06.
 
 ### Templates 1.2.1 and related package lineage
 

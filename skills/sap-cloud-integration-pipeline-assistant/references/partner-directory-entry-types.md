@@ -5,6 +5,7 @@
 - Entry type: Alternative Partner
 - Location: Monitor > Integrations and APIs > Partner Directory > Partner > Alternative Partners
 - Purpose: Resolve sender/interface (with or without namespace) to the configuration scenario PID
+- Party rule: when the sender has a party, use `<SenderParty>.<SenderSystemOrAlias>` as Agency. Use the same combined party/system identity consistently throughout the scenario.
 
 ### Without namespace (`SAP_SenderInterfaceNamespace` not set in Step01)
 - Agency: `<SenderAlias>` (e.g. `S4HANA`)
@@ -23,7 +24,7 @@ JSON:
 
 ### With namespace (`SAP_SenderInterfaceNamespace` set in Step01, e.g. `http://abc.com`)
 - Agency: `<SenderAlias>` (e.g. `S4HANA`)
-- Scheme: `<SenderInterface>` (e.g. `SI_Order_Out_Async`)
+- Scheme: `<SenderInterface>` with every `&`, `%`, and `/` replaced by `_` (e.g. `SI_Order_Out_Async`)
 - Identifier: `<namespace>` (e.g. `http://abc.com`)
 
 JSON:
@@ -38,6 +39,8 @@ JSON:
 
 Always ask the user whether a namespace is present before generating the Alternative Partner entry. The two structures are not interchangeable.
 
+For a sender interface without a namespace, retain the original interface name in Alternative Partner `Id`; the fixed Scheme is `SenderInterface`. The Generic Inbound 1.0.9 scripts normalize `[&%/]` only where the interface is used in the namespace lookup Scheme or fallback partner ID.
+
 ## String Parameter
 - Partner ID: `<ConfigurationScenarioPid>`
 - Entry type: String Parameter
@@ -45,6 +48,25 @@ Always ask the user whether a namespace is present before generating the Alterna
 - Parameter ID: `<ParameterName>`
 - Value: `<Value>`
 - Purpose: Runtime configuration or bypass value
+
+### EOIO route example
+
+- Partner ID: `<ConfigurationScenarioPid>`
+- Entry type: String Parameter
+- Location: Partner Directory > Partner > String Parameters
+- Parameter ID: `InOrderRouteOption`
+- Value: `ExclusiveQueue:UseSenderContextAsQueue`, `ExclusiveQueue:<QueueName>`, or `ProcessDirect:<Endpoint>`
+- Purpose: Route XI/IDoc EOIO messages from Generic Inbound Step01 before the downstream runtime is selected
+
+JSON:
+
+```json
+{
+  "Pid": "<ConfigurationScenarioPid>",
+  "Id": "InOrderRouteOption",
+  "Value": "ExclusiveQueue:UseSenderContextAsQueue"
+}
+```
 
 ## Binary Parameter
 - Partner ID: `<ConfigurationScenarioPid>`
